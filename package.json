@@ -1,0 +1,21 @@
+{
+  "name": "mint-u",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@farcaster/miniapp-sdk": "^0.1.3",
+    "@farcaster/miniapp-wagmi-connector": "^0.1.1",
+    "@tanstack/react-query": "^5.56.2",
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "thirdweb": "^5.70.3",
+    "viem": "^2.21.15",
+    "wagmi": "^2.13.1"
+  }
+}
