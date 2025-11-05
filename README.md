@@ -17,3 +17,25 @@ Next.js (App Router) + thirdweb v5 + wagmi + Farcaster Mini App SDK
 ```bash
 npm i
 npm run dev
+
+
+---
+
+### `.gitignore`（你说稍后网页端新建，这里给内容）
+```gitignore
+# Next.js / Node
+node_modules
+.next
+out
+dist
+.cache
+
+# env（不要把真实密钥放仓库）
+.env
+.env.local
+.env.*.local
+
+# OS & editor
+.DS_Store
+*.log
+*.swp
