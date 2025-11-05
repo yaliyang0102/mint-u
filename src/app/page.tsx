@@ -1,4 +1,5 @@
 "use client";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const fetchCache = "force-no-store";
@@ -7,34 +8,22 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount, useBalance, useConnect } from "wagmi";
 import { ClaimButton } from "thirdweb/react";
 import { base } from "thirdweb/chains";
-import { client } from "./providers";
+import { client } from "./thirdweb";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http } from "viem";
 import { base as viemBase } from "viem/chains";
 
-
 // ⚠️ 换成你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
-// —— 环境变量 —— //
-const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
-const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
-const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
+// 环境变量（尽量保持最少）
 const IMG_LIST_RAW =
   process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map((s) => s.trim()).filter(Boolean) || [];
+const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
+const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "3");
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
-// 头像兜底（可选）：如果 context 拿不到头像，强制使用该 URL
-const FORCE_PFP = process.env.NEXT_PUBLIC_FORCE_PFP || null;
-// 将 ipfs:// 转 https 网关（兼容头像来源为 ipfs 的情况）
-const PFP_GATEWAY = (process.env.NEXT_PUBLIC_PFP_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
-function toHttp(url?: string | null) {
-  if (!url) return null;
-  if (url.startsWith("ipfs://")) return `${PFP_GATEWAY}/ipfs/${url.slice("ipfs://".length)}`;
-  return url;
-}
-
-// —— 链上读取 —— //
+// 链上读取（仅读，不依赖钱包）
 const publicClient = createPublicClient({
   chain: viemBase,
   transport: http("https://mainnet.base.org"),
@@ -60,60 +49,43 @@ async function tryReadUint(fn: string) {
     return null;
   }
 }
-
-function preferNonZero(...vals: Array<bigint | null | undefined>): bigint | null {
+const preferNonZero = (...vals: Array<bigint | null | undefined>) => {
   for (const v of vals) if (v != null && v !== 0n) return v;
   return null;
-}
-
+};
 async function fetchMintProgress() {
   const mintedBn =
     preferNonZero(
       await tryReadUint("totalMinted"),
       await tryReadUint("totalSupply"),
-      await tryReadUint("nextTokenIdToClaim")
+      await tryReadUint("nextTokenIdToClaim"),
+      await tryReadUint("nextTokenIdToMint"),
     ) ?? 0n;
 
   const totalBn =
     preferNonZero(await tryReadUint("maxTotalSupply"), await tryReadUint("maxSupply")) ??
     BigInt(TOTAL_SUPPLY_FALLBACK);
 
-  const minted = Number(mintedBn);
-  const total = Number(totalBn || BigInt(TOTAL_SUPPLY_FALLBACK)) || TOTAL_SUPPLY_FALLBACK;
-  return { minted, total };
+  return { minted: Number(mintedBn), total: Number(totalBn) || TOTAL_SUPPLY_FALLBACK };
 }
 
-// —— 轮播：支持 IMG_LIST（优先）或 IMG_CID —— //
+// 轮播：优先 IMG_LIST；否则 IMG_CID + 序号
 function expandImgUrls(): string[] {
-  if (IMG_LIST_RAW.length) {
-    const urls: string[] = [];
-    const isImage = (u: string) => /\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(u);
-    for (const item of IMG_LIST_RAW) {
-      if (isImage(item)) {
-        urls.push(item);
-      } else {
-        // 给了“目录链接”则自动补 /1.png…N.png
-        const dir = item.replace(/\/+$/, "");
-        for (let i = 1; i <= IMG_COUNT; i++) urls.push(`${dir}/${i}.png`);
-      }
-    }
-    return urls;
-  }
+  if (IMG_LIST_RAW.length) return IMG_LIST_RAW;
   if (IMG_CID) {
-    return Array.from({ length: IMG_COUNT }, (_, i) => `${IPFS_GATEWAY}/ipfs/${IMG_CID}/${i + 1}.png`);
+    return Array.from({ length: IMG_COUNT }, (_, i) => `https://ipfs.io/ipfs/${IMG_CID}/${i + 1}.png`);
   }
   return [];
 }
 
 export default function Home() {
-  // 先 ready，保证 context 可用
+  // 让小程序 SDK 就绪（避免某些客户端卡住）
   useEffect(() => {
     sdk.actions.ready().catch(() => {});
   }, []);
 
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
-
   const { data: balance } = useBalance({
     address,
     chainId: 8453,
@@ -122,12 +94,8 @@ export default function Home() {
 
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  // —— 已铸/总量 —— //
-  const [{ minted, total }, setProgress] = useState<{ minted: number; total: number }>({
-    minted: 0,
-    total: TOTAL_SUPPLY_FALLBACK,
-  });
-
+  // 已铸/总量
+  const [{ minted, total }, setProgress] = useState({ minted: 0, total: TOTAL_SUPPLY_FALLBACK });
   useEffect(() => {
     let stop = false;
     const load = async () => {
@@ -144,42 +112,27 @@ export default function Home() {
     };
   }, []);
 
-  // —— 头像：先 ready，再从 user / cast.author 读取；最后用 FORCE_PFP 兜底 —— //
+  // Farcaster 头像（用户上下文 → Cast 作者兜底）
   const [pfp, setPfp] = useState<string | null>(null);
   useEffect(() => {
-    let stop = false;
     (async () => {
       try {
-        await sdk.actions.ready().catch(() => {});
+        await sdk.actions.ready();
         const anySdk: any = sdk as any;
-        const ctx = anySdk?.context || {};
-        const user = ctx.user || {};
-        const loc = ctx.location || {};
-        const author = loc?.cast?.author || {};
-
-        const candidates = [
-          user?.pfpUrl, user?.pfp_url, user?.avatar_url,
-          author?.pfpUrl, author?.pfp_url, author?.avatar_url,
-          FORCE_PFP,
-        ].filter(Boolean) as string[];
-
-        for (const raw of candidates) {
-          const url = toHttp(raw);
-          if (url) { if (!stop) setPfp(url); return; }
-        }
-        if (!stop) setPfp(null);
-      } catch {
-        if (!stop) setPfp(FORCE_PFP ? toHttp(FORCE_PFP) : null);
-      }
+        const u = anySdk?.context?.user;
+        const loc = anySdk?.context?.location;
+        const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
+        const fromCast =
+          (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
+        setPfp(fromUser || fromCast || null);
+      } catch {}
     })();
-    return () => { stop = true; };
   }, []);
 
-  // —— 轮播 —— //
+  // 轮播
   const allImgs = useMemo(() => expandImgUrls(), []);
   const [badSet, setBadSet] = useState<Set<string>>(new Set());
   const imgs = useMemo(() => allImgs.filter((u) => !badSet.has(u)), [allImgs, badSet]);
-
   const [idx, setIdx] = useState(0);
   useEffect(() => {
     if (!imgs.length) return;
@@ -198,15 +151,7 @@ export default function Home() {
       }}
     >
       {/* 顶部条 */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, color: "#4b6bff" }}>
           {minted}/{total} minted
         </div>
@@ -219,7 +164,6 @@ export default function Home() {
               height={32}
               style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }}
               alt="pfp"
-              onError={() => setPfp(null)}
             />
           ) : (
             <div
@@ -255,7 +199,6 @@ export default function Home() {
       >
         Mint U！
       </h1>
-
       <p style={{ textAlign: "center", color: "#375", opacity: 0.8, marginBottom: 16 }}>
         your cute onchain companions · generative collection on Base
       </p>
@@ -290,15 +233,12 @@ export default function Home() {
           />
         ) : (
           <div style={{ opacity: 0.6, fontWeight: 600, color: "#557", padding: 12, textAlign: "center" }}>
-            图片加载失败或未配置。请在 Vercel 设置
-            <br />
-            <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔完整图片 URL）
-            <br />或 <b>NEXT_PUBLIC_IMG_CID</b> + <b>NEXT_PUBLIC_IMG_COUNT</b>
+            图片加载失败或未配置。请在 Vercel 设置 <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔完整图片 URL）
           </div>
         )}
       </div>
 
-      {/* Share / Mint（保持你原来的连接逻辑） */}
+      {/* Share / Mint */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 420, margin: "0 auto" }}>
         <button
           onClick={() =>
@@ -330,10 +270,7 @@ export default function Home() {
             onTransactionConfirmed={(tx) => {
               setTxHash(tx.transactionHash);
               if (appUrl) {
-                sdk.actions.composeCast({
-                  text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
-                  embeds: [appUrl],
-                });
+                sdk.actions.composeCast({ text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU", embeds: [appUrl] });
               }
             }}
             onError={(e) => alert(`交易失败：${(e as Error).message}`)}
@@ -372,14 +309,12 @@ export default function Home() {
         )}
       </div>
 
-      {/* 下方：余额 + 成功提示 */}
+      {/* 余额 + 成功提示 */}
       <div style={{ maxWidth: 420, margin: "12px auto 0", textAlign: "center", color: "#334" }}>
         {isConnected ? (
           <p>
             Base 余额：{" "}
-            <b>
-              {balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}
-            </b>
+            <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
           </p>
         ) : (
           <p style={{ opacity: 0.8 }}>请先连接钱包（在 Warpcast Mini App 中打开）</p>
@@ -387,10 +322,7 @@ export default function Home() {
 
         {txHash && (
           <p style={{ marginTop: 8 }}>
-            交易成功：{" "}
-            <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
-              查看 Tx
-            </a>
+            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
           </p>
         )}
       </div>
