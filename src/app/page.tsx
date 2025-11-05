@@ -286,7 +286,7 @@ export default function Home() {
             client={client}
             chain={base}
             contractAddress={CONTRACT}
-            claimParams={{ type: "erc721", quantity: 1n }}
+            claimParams={{ type: "ERC721" as const, quantity: 1n }}
             onTransactionConfirmed={(tx) => {
               setTxHash(tx.transactionHash);
               if (appUrl) {
