@@ -1,27 +1,21 @@
+import "./globals.css";
+import type { Metadata } from "next";
 import { Providers } from "./providers";
 
-export const metadata = {
-  title: "Base NFT Mint",
-  description: "Farcaster Mini App · Mint on Base (thirdweb)",
+export const metadata: Metadata = {
+  title: "Mint U",
+  description: "Base NFT Mini App",
 };
 
-// src/app/layout.tsx（节选）
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const SITE = "https://mint-u.vercel.app/";
-  const miniapp = {
-    version: "1",
-    imageUrl: `${SITE}/og.png`,
-    button: {
-      title: "Mint on Base",
-      action: {
-        type: "launch_miniapp",
-        url: SITE,
-        // 可选：自定义启动过渡图和底色
-        // splashImageUrl: `${SITE}/og.png`,
-        // splashBackgroundColor: "#10131a",
-      },
-    },
-  };
+  return (
+    <html lang="zh-CN">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
 
   return (
     <html lang="zh-CN">
