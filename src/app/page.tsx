@@ -12,12 +12,17 @@ import { base as viemBase } from "viem/chains";
 // ⚠️ 换成你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
-// 从环境变量读取轮播图片和总量（配置在 Vercel）
+// —— 轮播图与总量配置（请到 Vercel 设置环境变量）—— //
+const IPFS_GATEWAY = process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io";
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
 const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
+const IMG_LIST =
+  process.env.NEXT_PUBLIC_IMG_LIST?.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) || [];
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
-// —— 小工具：读取合约上的几个常见“供应/进度”函数，逐个尝试 —— //
+// —— 链上读取：尝试多种常见函数，并对“读到 0”的情况做回退 —— //
 const publicClient = createPublicClient({
   chain: viemBase,
   transport: http("https://mainnet.base.org"),
@@ -44,42 +49,60 @@ async function tryReadUint(fn: string) {
   }
 }
 
-async function fetchMintProgress() {
-  // minted 优先：totalMinted -> totalSupply -> nextTokenIdToClaim
-  const minted =
-    (await tryReadUint("totalMinted")) ??
-    (await tryReadUint("totalSupply")) ??
-    (await tryReadUint("nextTokenIdToClaim")) ??
-    0n;
-
-  // total 优先：maxTotalSupply -> maxSupply -> 环境变量
-  const total =
-    (await tryReadUint("maxTotalSupply")) ??
-    (await tryReadUint("maxSupply")) ??
-    BigInt(TOTAL_SUPPLY_FALLBACK);
-
-  return { minted: Number(minted), total: Number(total) };
+function preferNonZero(...vals: Array<bigint | null | undefined>): bigint | null {
+  for (const v of vals) {
+    if (v != null && v !== 0n) return v;
+  }
+  return null;
 }
 
-// 轮播用：把 IPFS CID 转为 https 网关链接
-function makeImgUrls() {
-  if (!IMG_CID) return [] as string[];
-  // 使用通用网关；你也可以换成 pinata/gateway 自定义域
-  return Array.from({ length: IMG_COUNT }, (_, i) => `https://ipfs.io/ipfs/${IMG_CID}/${i + 1}.png`);
+async function fetchMintProgress() {
+  // minted：优先 totalMinted -> totalSupply -> nextTokenIdToClaim
+  const mintedBn =
+    preferNonZero(
+      await tryReadUint("totalMinted"),
+      await tryReadUint("totalSupply"),
+      await tryReadUint("nextTokenIdToClaim")
+    ) ?? 0n;
+
+  // total：优先 maxTotalSupply -> maxSupply，若为 0 或缺失，回退到环境变量
+  const totalBn =
+    preferNonZero(await tryReadUint("maxTotalSupply"), await tryReadUint("maxSupply")) ??
+    BigInt(TOTAL_SUPPLY_FALLBACK);
+
+  const minted = Number(mintedBn);
+  const total = Number(totalBn || BigInt(TOTAL_SUPPLY_FALLBACK)) || TOTAL_SUPPLY_FALLBACK;
+  return { minted, total };
+}
+
+// 轮播图：IMG_LIST > IMG_CID 目录
+function makeImgUrls(): string[] {
+  if (IMG_LIST.length) return IMG_LIST;
+  if (!IMG_CID) return [];
+  return Array.from(
+    { length: IMG_COUNT },
+    (_, i) => `${IPFS_GATEWAY}/ipfs/${IMG_CID}/${i + 1}.png`
+  );
 }
 
 export default function Home() {
+  // VERY IMPORTANT: 先声明就绪，保证能拿到 context
+  useEffect(() => {
+    sdk.actions.ready().catch(() => {});
+  }, []);
+
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
+
   const { data: balance } = useBalance({
-   address,
-   chainId: 8453,
-   // v2 用 query 传递轮询/触发策略
-   query: { refetchInterval: 15000, refetchOnWindowFocus: false }
+    address,
+    chainId: 8453,
+    query: { refetchInterval: 15000, refetchOnWindowFocus: false },
   });
+
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  // 顶部左侧：已铸/总量
+  // —— 已铸/总量 —— //
   const [{ minted, total }, setProgress] = useState<{ minted: number; total: number }>({
     minted: 0,
     total: TOTAL_SUPPLY_FALLBACK,
@@ -87,49 +110,36 @@ export default function Home() {
 
   useEffect(() => {
     let stop = false;
-    (async () => {
-      try {
-        const p = await fetchMintProgress();
-        if (!stop) setProgress(p);
-      } catch {
-        // 忽略读取失败
-      }
-    })();
-    // 每 20 秒自动刷新一次
-    const t = setInterval(async () => {
+    const load = async () => {
       try {
         const p = await fetchMintProgress();
         if (!stop) setProgress(p);
       } catch {}
-    }, 20000);
+    };
+    load();
+    const t = setInterval(load, 20000);
     return () => {
       stop = true;
       clearInterval(t);
     };
   }, []);
 
-  // 顶部右侧：Farcaster 头像（拿不到就用地址首字母圈）
+  // —— Farcaster 头像（主取 user.pfpUrl；从 Cast 启动则兜底 author.pfpUrl）—— //
   const [pfp, setPfp] = useState<string | null>(null);
   useEffect(() => {
-    (async () => {
-      try {
-        // 兼容多种 SDK 场景（v0.2 里未稳定公开，容错写法）
-        const anySdk: any = sdk as any;
-        const ctx =
-          (await anySdk?.context?.getCurrentUser?.()) ||
-          (await anySdk?.context?.user?.()) ||
-          anySdk?.context ||
-          {};
-        const u = ctx?.user || ctx;
-        const url = u?.pfpUrl || u?.pfp_url || u?.avatar_url || null;
-        if (url) setPfp(url);
-      } catch {
-        // ignore
-      }
-    })();
+    try {
+      const u: any = (sdk as any)?.context?.user;
+      const loc: any = (sdk as any)?.context?.location;
+      const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
+      const fromCast =
+        (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
+      setPfp(fromUser || fromCast || null);
+    } catch {
+      // ignore
+    }
   }, []);
 
-  // 中间：轮播图片
+  // —— 轮播图 —— //
   const imgs = useMemo(() => makeImgUrls(), []);
   const [idx, setIdx] = useState(0);
   useEffect(() => {
@@ -206,7 +216,6 @@ export default function Home() {
         Mint U！
       </h1>
 
-      {/* 说明副标题（可改成你的宣发文案） */}
       <p style={{ textAlign: "center", color: "#375", opacity: 0.8, marginBottom: 16 }}>
         your cute onchain companions · generative collection on Base
       </p>
@@ -226,24 +235,30 @@ export default function Home() {
         }}
       >
         {imgs.length ? (
-          // 轮播图
-          // 为了兼容 Warpcast 内置浏览器，不用复杂库，直接 <img> 轮播
-          // 若想加渐隐动画，可再加 CSS 过渡
           <img
             key={idx}
             src={imgs[idx]}
             alt="collection"
             style={{ width: "82%", height: "82%", objectFit: "cover", borderRadius: 12 }}
-            onError={(e) => ((e.currentTarget.style.visibility = "hidden"))}
+            onError={(e) => {
+              // 显示一个占位而不是直接隐藏
+              e.currentTarget.replaceWith(
+                Object.assign(document.createElement("div"), {
+                  innerText: "图片加载失败，请检查 CID / URL",
+                  style:
+                    "opacity:.7;font-weight:600;color:#557;padding:12px;text-align:center;",
+                })
+              );
+            }}
           />
         ) : (
           <div style={{ opacity: 0.6, fontWeight: 600, color: "#557", padding: 12 }}>
-            设置 NEXT_PUBLIC_IMG_CID 后这里会轮播展示图片
+            请在 Vercel 设置 <b>NEXT_PUBLIC_IMG_LIST</b>（逗号分隔）或 <b>NEXT_PUBLIC_IMG_CID</b>
           </div>
         )}
       </div>
 
-      {/* 两个主按钮：Share / Mint */}
+      {/* Share / Mint（连接区保持你原来逻辑） */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, maxWidth: 420, margin: "0 auto" }}>
         <button
           onClick={() =>
@@ -271,14 +286,15 @@ export default function Home() {
             client={client}
             chain={base}
             contractAddress={CONTRACT}
-            claimParams={{ type: "ERC721", quantity: 1n }}
+            claimParams={{ type: "erc721", quantity: 1n }}
             onTransactionConfirmed={(tx) => {
               setTxHash(tx.transactionHash);
-              const url = typeof window !== "undefined" ? window.location.href : undefined;
-              sdk.actions.composeCast({
-                text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
-                ...(url ? { embeds: [url] } : {}),
-              });
+              if (appUrl) {
+                sdk.actions.composeCast({
+                  text: "我刚在 Base 铸了一枚 NFT（0.001 ETH）#MintU",
+                  embeds: [appUrl],
+                });
+              }
             }}
             onError={(e) => alert(`交易失败：${(e as Error).message}`)}
             style={{
@@ -295,7 +311,6 @@ export default function Home() {
             Mint
           </ClaimButton>
         ) : (
-          // 未连接时，显示连接选择（Farcaster MiniApp 里会出现内置连接器）
           connectors.map((c) => (
             <button
               key={c.id}
