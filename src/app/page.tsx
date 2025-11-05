@@ -1,4 +1,7 @@
 "use client";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 
 import { useEffect, useMemo, useState } from "react";
 import { useAccount, useBalance, useConnect } from "wagmi";
@@ -8,9 +11,7 @@ import { client } from "./providers";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http } from "viem";
 import { base as viemBase } from "viem/chains";
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-export const revalidate = 0;
+
 
 // ⚠️ 换成你的 DropERC721 合约地址
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
