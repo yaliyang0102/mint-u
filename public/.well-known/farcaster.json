@@ -7,9 +7,13 @@
   "miniapp": {
     "version": "1",
     "name": "Base NFT Mint",
-    "iconUrl": "https://mint-u.vercel.app/icon.png",
+    "iconUrl": "https://mint-u.vercel.app/app-icon.png",          // 1024x1024 PNG，无透明
     "homeUrl": "https://mint-u.vercel.app/",
-    "splashImageUrl": "https://muyu-101.vercel.app/og.png",
-    "splashBackgroundColor": "#000000"
+    "splashImageUrl": "https://mint-u.vercel.app/splash.png",     // 200x200 PNG
+    "splashBackgroundColor": "#0b0f1a",
+    "ogTitle": "Base NFT Mint",
+    "ogDescription": "一键铸造 · 体验 Base 链",
+    "ogImageUrl": "https://mint-u.vercel.app/og.png"              // 1200x630（1.91:1）PNG，用于 Universal Link 预览
   }
 }
+
