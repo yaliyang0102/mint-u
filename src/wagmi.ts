@@ -1,7 +1,7 @@
 import { createConfig, http, cookieStorage, createStorage } from "wagmi";
 import { base } from "wagmi/chains";
 import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
-import { injected } from "wagmi/connectors";
+import { injected } from "@wagmi/connectors/injected";
 
 export const config = createConfig({
   chains: [base],
