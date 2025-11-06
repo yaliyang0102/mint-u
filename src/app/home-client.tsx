@@ -9,10 +9,10 @@ import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http, type Address } from "viem";
 import { base as viemBase } from "viem/chains";
 
-// ⚠️ 你的 DropERC721 合约地址
+
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
-// —— 环境变量 —— //
+
 const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
 const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
