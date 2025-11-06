@@ -1,7 +1,7 @@
 import { createConfig, http, cookieStorage, createStorage } from "wagmi";
 import { base } from "wagmi/chains";
 import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
-import { injected } from "wagmi/connectors/injected"; // ✅ 关键修改
+import { injected } from "@wagmi/connectors/injected"; // ✅ 关键！
 
 export const config = createConfig({
   chains: [base],
@@ -9,7 +9,7 @@ export const config = createConfig({
   storage: createStorage({ storage: cookieStorage }),
   transports: { [base.id]: http() },
   connectors: [
-    miniAppConnector(),
-    injected({ shimDisconnect: true }),
+    miniAppConnector(),               // Farcaster Mini App 内置钱包
+    injected({ shimDisconnect: true })// 浏览器兜底（Metamask/OKX/Bitget 等）
   ],
 });
