@@ -3,13 +3,13 @@ import { Providers } from "./providers";
 
 const miniapp = {
   version: "1",
-  imageUrl: "https://mint-u.vercel.app/og.png", // 3:2 图
+  imageUrl: "https://mint-u.vercel.app/og.png",
   button: {
     title: "Mint now",
     action: {
       type: "launch_miniapp",
       url: "https://mint-u.vercel.app/",
-      name: "Mint U！",
+      name: "Mint U!",
       splashImageUrl: "https://mint-u.vercel.app/splash.png",
       splashBackgroundColor: "#0b0f1a",
     },
