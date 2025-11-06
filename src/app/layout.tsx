@@ -1,39 +1,24 @@
-import type { Metadata } from "next";
-import "./globals.css";
-import { Providers } from "./providers";
+// src/app/layout.tsx
+import type { Metadata } from "next"
 
-const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://mint-u.vercel.app";
-
-const MINIAPP = {
+const miniapp = {
   version: "1",
-  imageUrl: `${SITE}/og.png`,
-  button: { title: "Mint U", action: { type: "launch_miniapp", url: SITE } },
-  splashImageUrl: `${SITE}/icon-200.png`,
-  splashBackgroundColor: "#000000",
-};
+  imageUrl: "https://mint-u.vercel.app/og.png", // 3:2 的图
+  button: {
+    title: "Mint now",
+    action: {
+      type: "launch_miniapp",
+      url: "https://mint-u.vercel.app/",         // 打开的小程序页
+      name: "Base NFT Mint",
+      splashImageUrl: "https://mint-u.vercel.app/splash.png",
+      splashBackgroundColor: "#0b0f1a"
+    }
+  }
+} as const
 
 export const metadata: Metadata = {
-  title: "Mint U — Base NFT Mini App",
-  description: "Mint U！在 Base 链一键铸造，并分享到 Farcaster。",
-  openGraph: { title: "Mint U — Base NFT Mini App", description: "Mint U！在 Base 链一键铸造，并分享到 Farcaster。", images: [`${SITE}/og.png`], url: SITE },
-  twitter: { card: "summary_large_image", title: "Mint U — Base NFT Mini App", description: "Mint U！在 Base 链一键铸造，并分享到 Farcaster。", images: [`${SITE}/og.png`] },
-};
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="zh-CN">
-      <head>
-        <meta name="fc:miniapp" content={JSON.stringify(MINIAPP)} />
-        <meta
-          name="fc:frame"
-          content={JSON.stringify({
-            ...MINIAPP,
-            button: { ...MINIAPP.button, action: { ...MINIAPP.button.action, type: "launch_frame" } },
-          })}
-        />
-        <link rel="icon" href="/icon-200.png" />
-      </head>
-      <body><Providers>{children}</Providers></body>
-    </html>
-  );
+  other: {
+    "fc:miniapp": JSON.stringify(miniapp),
+    "fc:frame":   JSON.stringify({ ...miniapp, button:{...miniapp.button, action:{...miniapp.button.action, type:"launch_frame"}} }) // 兼容旧客户端
+  }
 }
