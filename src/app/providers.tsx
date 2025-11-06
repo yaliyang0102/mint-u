@@ -3,11 +3,8 @@
 import { ReactNode, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider, useReconnect } from "wagmi";
-import { ThirdwebProvider } from "thirdweb/react";
-import { base as thirdwebBase } from "thirdweb/chains";
 import { config } from "../wagmi";
 import { sdk } from "@farcaster/miniapp-sdk";
-import { getThirdwebClient } from "./thirdweb";
 
 const queryClient = new QueryClient();
 
@@ -16,29 +13,18 @@ function AutoReconnect() {
   useEffect(() => {
     (async () => {
       try { await sdk.actions.ready(); } catch {}
-      reconnect();
+      reconnect(); // Mini App 环境里触发一次重连
     })();
   }, [reconnect]);
   return null;
 }
 
 export function Providers({ children }: { children: ReactNode }) {
-  const client = getThirdwebClient();
-
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
-        {client ? (
-          <ThirdwebProvider client={client} activeChain={thirdwebBase}>
-            <AutoReconnect />
-            {children}
-          </ThirdwebProvider>
-        ) : (
-          <>
-            <AutoReconnect />
-            {children}
-          </>
-        )}
+        <AutoReconnect />
+        {children}
       </WagmiProvider>
     </QueryClientProvider>
   );
