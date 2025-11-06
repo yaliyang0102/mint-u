@@ -9,17 +9,22 @@ import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http, type Address } from "viem";
 import { base as viemBase } from "viem/chains";
 
-
+// ====== 合约与显示配置 ======
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
 
+// 固定头像（支持 ENV 覆盖）
+const FIXED_PFP_URL =
+  process.env.NEXT_PUBLIC_PFP_URL ??
+  "https://imagedelivery.net/BXluQx4ige9GuW0Ia56BHw/b312c673-540d-4e41-3b61-457fbd971c00/original";
 
+// ====== 图片轮播配置（两种来源：IMG_LIST 优先；否则 IMG_CID + IMG_COUNT）======
 const IPFS_GATEWAY = (process.env.NEXT_PUBLIC_IPFS_GATEWAY || "https://ipfs.io").replace(/\/+$/, "");
 const IMG_CID = process.env.NEXT_PUBLIC_IMG_CID;
 const IMG_COUNT = Number(process.env.NEXT_PUBLIC_IMG_COUNT ?? "8");
 const IMG_LIST_RAW = process.env.NEXT_PUBLIC_IMG_LIST?.split(",").map(s => s.trim()).filter(Boolean) || [];
 const TOTAL_SUPPLY_FALLBACK = Number(process.env.NEXT_PUBLIC_TOTAL_SUPPLY ?? "100");
 
-// —— 链上读取 —— //
+// ====== 链上读取（铸造进度等）======
 const publicClient = createPublicClient({
   chain: viemBase,
   transport: http("https://mainnet.base.org"),
@@ -28,7 +33,7 @@ const publicClient = createPublicClient({
 async function tryReadUint(fn: string) {
   try {
     const out = await publicClient.readContract({
-      address: CONTRACT as Address, // ✅ 改成 Address，避免 SWC 解析模板字面量类型
+      address: CONTRACT as Address,
       abi: [
         {
           name: fn,
@@ -66,7 +71,7 @@ async function fetchMintProgress() {
   return { minted: Number(mintedBn), total: Number(totalBn) || TOTAL_SUPPLY_FALLBACK };
 }
 
-// —— 轮播：支持 IMG_LIST（优先）或 IMG_CID —— //
+// ====== 展开轮播图片 URL 列表 ======
 function expandImgUrls(): string[] {
   if (IMG_LIST_RAW.length) {
     const urls: string[] = [];
@@ -99,6 +104,7 @@ export default function HomeClient() {
     };
   }, []);
 
+  // MiniApp 环境准备（用于 Share 等）
   useEffect(() => {
     sdk.actions.ready().catch(() => {});
   }, []);
@@ -129,7 +135,7 @@ export default function HomeClient() {
 
   const [txHash, setTxHash] = useState<string | null>(null);
 
-  // —— 已铸/总量 —— //
+  // 已铸/总量
   const [{ minted, total }, setProgress] = useState<{ minted: number; total: number }>({
     minted: 0,
     total: TOTAL_SUPPLY_FALLBACK,
@@ -151,24 +157,10 @@ export default function HomeClient() {
     };
   }, []);
 
-  // —— 头像（先尝试 context.user，再尝试 cast.author） —— //
-  const [pfp, setPfp] = useState<string | null>(null);
-  useEffect(() => {
-    (async () => {
-      try {
-        await sdk.actions.ready();
-        const anySdk: any = sdk as any;
-        const u = anySdk?.context?.user;
-        const loc = anySdk?.context?.location;
-        const fromUser = u?.pfpUrl || u?.pfp_url || u?.avatar_url;
-        const fromCast =
-          (loc?.type === "cast_embed" || loc?.type === "cast_share") ? loc?.cast?.author?.pfpUrl : undefined;
-        setPfp(fromUser || fromCast || null);
-      } catch {}
-    })();
-  }, []);
+  // 头像（固定 URL + 失败回退）
+  const [pfpFailed, setPfpFailed] = useState(false);
 
-  // —— 轮播 —— //
+  // 轮播
   const allImgs = useMemo(() => expandImgUrls(), []);
   const [badSet, setBadSet] = useState<Set<string>>(new Set());
   const imgs = useMemo(() => allImgs.filter((u) => !badSet.has(u)), [allImgs, badSet]);
@@ -191,13 +183,40 @@ export default function HomeClient() {
       }}
     >
       {/* 顶部条 */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
         <div style={{ fontWeight: 700, color: "#4b6bff" }}>{minted}/{total} minted</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {pfp ? (
-            <img src={pfp} width={32} height={32} style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }} alt="pfp" />
+          {!pfpFailed ? (
+            <img
+              src={FIXED_PFP_URL}
+              width={32}
+              height={32}
+              referrerPolicy="no-referrer"
+              style={{ borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 0 0 2px #aab6ff" }}
+              onError={() => setPfpFailed(true)}
+              alt="pfp"
+            />
           ) : (
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8aa0ff", display: "grid", placeItems: "center", color: "#fff", fontWeight: 700 }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: "#8aa0ff",
+                display: "grid",
+                placeItems: "center",
+                color: "#fff",
+                fontWeight: 700,
+              }}
+            >
               {(address ?? "U").slice(2, 3).toUpperCase()}
             </div>
           )}
@@ -205,7 +224,18 @@ export default function HomeClient() {
       </div>
 
       {/* 标题 */}
-      <h1 style={{ textAlign: "center", fontSize: 44, lineHeight: 1.05, margin: "8px 0 16px", background: "linear-gradient(90deg,#b05bff,#ff6ac6)", WebkitBackgroundClip: "text", color: "transparent", fontWeight: 900 }}>
+      <h1
+        style={{
+          textAlign: "center",
+          fontSize: 44,
+          lineHeight: 1.05,
+          margin: "8px 0 16px",
+          background: "linear-gradient(90deg,#b05bff,#ff6ac6)",
+          WebkitBackgroundClip: "text",
+          color: "transparent",
+          fontWeight: 900,
+        }}
+      >
         Mint U！
       </h1>
 
@@ -260,7 +290,16 @@ export default function HomeClient() {
               ...(appUrl ? { embeds: [appUrl] } : {}),
             })
           }
-          style={{ padding: "12px 16px", borderRadius: 12, background: "#4d76ff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(77,118,255,.35)" }}
+          style={{
+            padding: "12px 16px",
+            borderRadius: 12,
+            background: "#4d76ff",
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+            fontWeight: 700,
+            boxShadow: "0 6px 16px rgba(77,118,255,.35)",
+          }}
         >
           Share
         </button>
@@ -282,14 +321,34 @@ export default function HomeClient() {
                 }
               }}
               onError={(e) => alert(`交易失败：${(e as Error).message}`)}
-              style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
+              style={{
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: "#6a5cff",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 700,
+                boxShadow: "0 6px 16px rgba(106,92,255,.35)",
+              }}
             >
               Mint
             </ClaimButton>
           ) : (
             <button
-              onClick={() => alert("缺少 NEXT_PUBLIC_THIRDWEB_CLIENT_ID，去 Vercel → Settings → Environment Variables 添加后再部署")}
-              style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
+              onClick={() =>
+                alert("缺少 NEXT_PUBLIC_THIRDWEB_CLIENT_ID，去 Vercel → Settings → Environment Variables 添加后再部署")
+              }
+              style={{
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: "#6a5cff",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 700,
+                boxShadow: "0 6px 16px rgba(106,92,255,.35)",
+              }}
             >
               配置后可 Mint
             </button>
@@ -299,7 +358,16 @@ export default function HomeClient() {
             <button
               key={c.id}
               onClick={() => connect({ connector: c })}
-              style={{ padding: "12px 16px", borderRadius: 12, background: "#6a5cff", color: "#fff", border: "none", cursor: "pointer", fontWeight: 700, boxShadow: "0 6px 16px rgba(106,92,255,.35)" }}
+              style={{
+                padding: "12px 16px",
+                borderRadius: 12,
+                background: "#6a5cff",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: 700,
+                boxShadow: "0 6px 16px rgba(106,92,255,.35)",
+              }}
             >
               连接 {c.name}
             </button>
@@ -311,15 +379,17 @@ export default function HomeClient() {
       <div style={{ maxWidth: 420, margin: "12px auto 0", textAlign: "center", color: "#334" }}>
         {isConnected ? (
           <p>
-            Base 余额：{" "}
-            <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
+            Base 余额： <b>{balance ? Number(balance.formatted).toFixed(4) : "--"} {balance?.symbol ?? "ETH"}</b>
           </p>
         ) : (
           <p style={{ opacity: 0.8 }}>请先连接钱包（在 Warpcast Mini App 中打开）</p>
         )}
         {txHash && (
           <p style={{ marginTop: 8 }}>
-            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
+            交易成功：{" "}
+            <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
+              查看 Tx
+            </a>
           </p>
         )}
       </div>
