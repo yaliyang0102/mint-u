@@ -9,7 +9,7 @@ const miniapp = {
     action: {
       type: "launch_miniapp",
       url: "https://mint-u.vercel.app/",
-      name: "Mint U!",
+      name: "Base NFT Mint",
       splashImageUrl: "https://mint-u.vercel.app/splash.png",
       splashBackgroundColor: "#0b0f1a",
     },
