@@ -23,5 +23,11 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@types/node": "^20.11.0"
+  },
+  "dependencies": {
+    "@wagmi/connectors": "^5.1.7",
+    "wagmi": "^2.12.0",
+    "viem": "^2.20.0",
+    "@farcaster/miniapp-wagmi-connector": "^0.1.0"
   }
 }
