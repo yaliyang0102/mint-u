@@ -9,6 +9,7 @@
     "name": "Base NFT Mint",
     "iconUrl": "https://mint-u.vercel.app/icon.png",
     "homeUrl": "https://mint-u.vercel.app/",
+    "splashImageUrl": "https://muyu-101.vercel.app/og.png",
     "splashBackgroundColor": "#000000"
   }
 }
