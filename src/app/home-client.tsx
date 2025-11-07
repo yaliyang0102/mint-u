@@ -8,6 +8,7 @@ import { createThirdwebClient } from "thirdweb";
 import { sdk } from "@farcaster/miniapp-sdk";
 import { createPublicClient, http, type Address } from "viem";
 import { base as viemBase } from "viem/chains";
+import { farcasterMiniApp as miniAppConnector } from "@farcaster/miniapp-wagmi-connector";
 
 // ====== 合约与显示配置 ======
 const CONTRACT = "0xb18d766e6316a93B47338F1661a0b9566C16f979";
@@ -109,63 +110,57 @@ export default function HomeClient() {
     sdk.actions.ready().catch(() => {});
   }, []);
 
-  // ====== 环境检测 & Farcaster 连接 ======
+  // ====== 账户 & 连接 ======
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
-  const [inWarpcast, setInWarpcast] = useState<boolean | null>(null);
   const [connectErr, setConnectErr] = useState<string | null>(null);
 
-  // 更宽松的环境检测：能确认是 Warpcast 就 true；否则保持 null（不提示）
+  // 调试：打印连接器列表
   useEffect(() => {
-    (async () => {
-      try { await sdk.actions.ready(); } catch {}
-      try {
-        const anySdk: any = sdk as any;
-        const name =
-          anySdk?.context?.client?.name ||
-          anySdk?.context?.location?.client?.name ||
-          "";
-        const type = anySdk?.context?.location?.type || "";
-        const ua = navigator.userAgent || "";
-        if (/warpcast/i.test(name) || /mini/i.test(type) || /warpcast/i.test(ua)) {
-          setInWarpcast(true);
-        } else {
-          setInWarpcast(null);
-        }
-      } catch {
-        setInWarpcast(null);
-      }
-    })();
+    try {
+      // @ts-ignore
+      console.log("Wagmi connectors:", connectors.map(c => ({ id: c.id, name: c.name })));
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const farcasterConnector = useMemo(
-    () =>
-      connectors.find(
-        (c) =>
-          /farcaster|warp/i.test(c.name) ||
-          c.id === "farcaster" ||
-          c.id === "farcasterMiniApp"
-      ),
-    [connectors]
-  );
+  // 兜底：即使 connectors 列表里没有，也本地构造一个 Farcaster 连接器
+  const fcFallback = useMemo(() => {
+    try {
+      return miniAppConnector();
+    } catch {
+      return undefined;
+    }
+  }, []);
 
-  // 仅在明确处于 Mini App 且未连接时，自动尝试一次 Farcaster 连接
+  // 优先用已有；否则用兜底
+  const farcasterConnector = useMemo(() => {
+    const found = connectors.find(
+      (c) =>
+        /farcaster|warp/i.test(c.name) ||
+        c.id === "farcaster" ||
+        c.id === "farcasterMiniApp"
+    );
+    return found ?? fcFallback;
+  }, [connectors, fcFallback]);
+
+  // 自动尝试连接 Farcaster（不依赖环境判断）
   useEffect(() => {
     (async () => {
       try { await sdk.actions.ready(); } catch {}
-      if (inWarpcast && !isConnected && farcasterConnector) {
+      if (!isConnected && farcasterConnector) {
         try {
           await connect({ connector: farcasterConnector });
           setConnectErr(null);
         } catch (e: any) {
-          const msg = e?.message || String(e);
-          console.warn("auto-connect farcaster failed:", e);
-          setConnectErr(msg);
+          setConnectErr(e?.message || String(e));
+          console.warn("auto-connect Farcaster failed:", e);
         }
       }
     })();
+    // 仅在 farcasterConnector 变化时再试一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inWarpcast, farcasterConnector]);
+  }, [farcasterConnector]);
 
   // 懒创建 thirdweb client（缺 env 时不崩页）
   const client = useMemo(() => {
@@ -182,6 +177,7 @@ export default function HomeClient() {
     }
   }, []);
 
+  // 余额
   const { data: balance } = useBalance({
     address,
     chainId: 8453,
@@ -278,22 +274,13 @@ export default function HomeClient() {
         </div>
       </div>
 
-      {/* 非 Warpcast 环境 / 连接失败提示（仅在未连接时显示） */}
-      {!isConnected && (
-        <div style={{ maxWidth: 520, margin: "0 auto 10px", fontSize: 13, lineHeight: 1.35 }}>
-          {inWarpcast === false && (
-            <div style={{ color: "#854", marginBottom: 6 }}>
-              检测到当前<strong>不是</strong> Warpcast Mini App 环境。请从 Warpcast 内点击 “Open / Launch Mini App” 再试。
-            </div>
-          )}
-          {inWarpcast && farcasterConnector && connectErr && (
-            <div style={{ color: "#a33" }}>
-              Farcaster 连接失败：{connectErr}
-              <div style={{ opacity: 0.8 }}>
-                若从未创建过 In-App Wallet，请在 Warpcast → Profile → Wallet 中先创建；或清一次 App 缓存后重试。
-              </div>
-            </div>
-          )}
+      {/* 连接报错（未连接时才提示） */}
+      {!isConnected && connectErr && (
+        <div style={{ maxWidth: 520, margin: "0 auto 10px", fontSize: 13, lineHeight: 1.35, color: "#a33" }}>
+          Farcaster 连接失败：{connectErr}
+          <div style={{ opacity: 0.8 }}>
+            若从未创建过 In-App Wallet，请在 Warpcast → Profile → Wallet 中先创建；或清一次 App 缓存后重试。
+          </div>
         </div>
       )}
 
@@ -429,8 +416,8 @@ export default function HomeClient() {
           )
         ) : (
           <>
-            {/* Farcaster 专用按钮（只在检测为 Mini App 时显示） */}
-            {inWarpcast && farcasterConnector && (
+            {/* 永远显示 Farcaster 专用按钮（只要可用） */}
+            {farcasterConnector && (
               <button
                 onClick={async () => {
                   try {
@@ -491,8 +478,11 @@ export default function HomeClient() {
             如果连接失败：请在 Warpcast → Profile → Wallet 创建 In-App Wallet，并授权该 Mini App 使用。
           </p>
         )}
-        {/* 成功 Tx 提示（可选显示） */}
-        {/* 这里 txHash 仅用于 UI 展示，不参与逻辑 */}
+        {txHash && (
+          <p style={{ marginTop: 8 }}>
+            交易成功： <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">查看 Tx</a>
+          </p>
+        )}
       </div>
     </main>
   );
