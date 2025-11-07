@@ -115,16 +115,25 @@ export default function HomeClient() {
   const [inWarpcast, setInWarpcast] = useState<boolean | null>(null);
   const [connectErr, setConnectErr] = useState<string | null>(null);
 
+  // 更宽松的环境检测：能确认是 Warpcast 就 true；否则保持 null（不提示）
   useEffect(() => {
     (async () => {
+      try { await sdk.actions.ready(); } catch {}
       try {
-        await sdk.actions.ready();
         const anySdk: any = sdk as any;
-        const clientName =
-          anySdk?.context?.location?.client?.name || anySdk?.context?.client?.name || "";
-        setInWarpcast(String(clientName).toLowerCase() === "warpcast");
+        const name =
+          anySdk?.context?.client?.name ||
+          anySdk?.context?.location?.client?.name ||
+          "";
+        const type = anySdk?.context?.location?.type || "";
+        const ua = navigator.userAgent || "";
+        if (/warpcast/i.test(name) || /mini/i.test(type) || /warpcast/i.test(ua)) {
+          setInWarpcast(true);
+        } else {
+          setInWarpcast(null);
+        }
       } catch {
-        setInWarpcast(false);
+        setInWarpcast(null);
       }
     })();
   }, []);
@@ -140,7 +149,7 @@ export default function HomeClient() {
     [connectors]
   );
 
-  // 进入 Mini App 且未连接时自动尝试一次 Farcaster 连接
+  // 仅在明确处于 Mini App 且未连接时，自动尝试一次 Farcaster 连接
   useEffect(() => {
     (async () => {
       try { await sdk.actions.ready(); } catch {}
@@ -155,7 +164,6 @@ export default function HomeClient() {
         }
       }
     })();
-    // 仅初次/关键依赖变化时触发
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inWarpcast, farcasterConnector]);
 
@@ -421,7 +429,7 @@ export default function HomeClient() {
           )
         ) : (
           <>
-            {/* 优先提供 Farcaster 专用按钮（仅在 Warpcast 环境显示） */}
+            {/* Farcaster 专用按钮（只在检测为 Mini App 时显示） */}
             {inWarpcast && farcasterConnector && (
               <button
                 onClick={async () => {
@@ -483,14 +491,8 @@ export default function HomeClient() {
             如果连接失败：请在 Warpcast → Profile → Wallet 创建 In-App Wallet，并授权该 Mini App 使用。
           </p>
         )}
-        {txHash && (
-          <p style={{ marginTop: 8 }}>
-            交易成功：{" "}
-            <a href={`https://basescan.org/tx/${txHash}`} target="_blank" rel="noreferrer">
-              查看 Tx
-            </a>
-          </p>
-        )}
+        {/* 成功 Tx 提示（可选显示） */}
+        {/* 这里 txHash 仅用于 UI 展示，不参与逻辑 */}
       </div>
     </main>
   );
